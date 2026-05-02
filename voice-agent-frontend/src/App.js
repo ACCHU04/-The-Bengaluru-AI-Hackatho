@@ -103,15 +103,33 @@ function App() {
                 setNowPlaying(data.song);
                 try {
                   if (musicRef.current) musicRef.current.pause();
-                  musicRef.current = new Audio('https://cdn.pixabay.com/audio/2022/05/27/audio_1808fbf07a.mp3');
+                  // Play ambient background audio locally
+                  musicRef.current = new Audio('https://cdn.pixabay.com/audio/2022/10/18/audio_e58e623e40.mp3');
                   musicRef.current.loop = true;
-                  musicRef.current.volume = 0.4;
+                  musicRef.current.volume = 0.5;
                   musicRef.current.play().catch(e => console.log('[Music] Autoplay blocked:', e));
                 } catch(e) { console.log('[Music] Error:', e); }
+                // Open YouTube Music with the requested song
+                const songQuery = encodeURIComponent(data.song);
+                window.open(`https://music.youtube.com/search?q=${songQuery}`, '_blank');
               }
               else if (data.action === 'cab_booked') {
                 setCabInfo({ eta: data.eta, destination: data.destination });
-                setTimeout(() => setCabInfo(null), 15000);
+                setTimeout(() => setCabInfo(null), 20000);
+                // Open Uber with the destination pre-filled
+                const dest = encodeURIComponent(data.destination);
+                window.open(`https://m.uber.com/ul/?action=setPickup&pickup=my_location&dropoff[formatted_address]=${dest}`, '_blank');
+              }
+              else if (data.action === 'movie_booked') {
+                // Open BookMyShow with the movie search
+                const movie = encodeURIComponent(data.movie);
+                window.open(`https://in.bookmyshow.com/explore/movies-bengaluru?q=${movie}`, '_blank');
+              }
+              else if (data.action === 'appointment_booked') {
+                // Open Google Calendar to create the appointment
+                const title = encodeURIComponent(`Doctor: ${data.doctor}`);
+                const details = encodeURIComponent(`Hospital: ${data.hospital}\nBooked via Aegis Voice Agent`);
+                window.open(`https://calendar.google.com/calendar/r/eventedit?text=${title}&details=${details}`, '_blank');
               }
             }
 

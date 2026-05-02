@@ -276,6 +276,14 @@ wss.on('connection', (ws) => {
                     toolResult = { status: "Trauma alert sent to casualty ward" };
                 } else if (call.name === 'book_movie_tickets') {
                     toolResult = { status: "Tickets booked successfully", confirmation_code: "BMS-" + Math.floor(Math.random() * 90000 + 10000) };
+                    // Open BookMyShow on the phone
+                    if (ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({
+                            type: 'hardware_action',
+                            action: 'movie_booked',
+                            movie: call.args.movie_name
+                        }));
+                    }
                 } else if (call.name === 'play_device_music') {
                     toolResult = { status: "Music playback initiated on device hardware" };
                     if (ws.readyState === WebSocket.OPEN) {
@@ -294,6 +302,15 @@ wss.on('connection', (ws) => {
                 } else if (call.name === 'schedule_appointment') {
                     const apptId = 'APT-' + Math.floor(Math.random() * 90000 + 10000);
                     toolResult = { status: "Appointment scheduled", appointment_id: apptId, doctor: call.args.doctor_type, date: call.args.preferred_date || 'Next available slot', hospital: call.args.hospital || 'Nearest partner hospital' };
+                    // Open Google Calendar on the phone
+                    if (ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({
+                            type: 'hardware_action',
+                            action: 'appointment_booked',
+                            doctor: call.args.doctor_type,
+                            hospital: call.args.hospital || 'Nearest partner hospital'
+                        }));
+                    }
                 } else if (call.name === 'check_discharge_status') {
                     const statuses = {
                         billing: { status: 'Cleared', amount: '₹12,450' },
