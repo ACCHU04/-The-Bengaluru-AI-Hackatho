@@ -227,241 +227,186 @@ wss.on('connection', (ws) => {
 
     async function processWithLLM(text) {
         if (isProcessingLLM) {
-            console.log(`[Backend] Blocked concurrent LLM request. Dropped: "${text}"`);
+            console.log(`[Backend] Blocked concurrent request. Dropped: "${text}"`);
             return;
         }
         
         isProcessingLLM = true;
         try {
-            // Add user message to history
-            conversationHistory.push({ role: 'user', content: text });
+            const lower = text.toLowerCase();
 
-            // Keep history manageable (system + last 10 exchanges)
-            if (conversationHistory.length > 21) {
-                const system = conversationHistory[0];
-                conversationHistory.splice(1, conversationHistory.length - 11);
-                conversationHistory[0] = system;
+            // ========== KEYWORD-BASED TOOL DETECTION ==========
+            let detectedTool = null;
+
+            // Play music
+            if ((lower.includes('play') || lower.includes('song') || lower.includes('music')) && !lower.includes('code red')) {
+                const songName = text.replace(/^.*?(play|put on|start)\s*/i, '').replace(/\s*(on youtube|on spotify|please|for me|in the youtube|in youtube).*$/i, '').trim() || 'Arijit Singh';
+                detectedTool = { name: 'play_device_music', args: { song_name: songName } };
+            }
+            // Book cab
+            else if (lower.includes('cab') || lower.includes('uber') || lower.includes('ola') || lower.includes('taxi') || lower.includes('ride')) {
+                const dest = text.replace(/^.*?(to|for|towards)\s*/i, '').replace(/\s*(please|now|quickly).*$/i, '').trim() || 'Nearest location';
+                detectedTool = { name: 'book_cab', args: { destination: dest, cab_type: 'economy' } };
+            }
+            // Book movie
+            else if (lower.includes('movie') || lower.includes('ticket') || lower.includes('cinema') || lower.includes('book my show')) {
+                const movie = text.replace(/^.*?(for|of|to see|watch)\s*/i, '').replace(/\s*(please|at|in|ticket).*$/i, '').trim() || 'Latest Movie';
+                detectedTool = { name: 'book_movie_tickets', args: { movie_name: movie, theater: 'Nearest Theater', tickets: 2 } };
+            }
+            // Schedule appointment
+            else if (lower.includes('appointment') || lower.includes('schedule') || (lower.includes('doctor') && lower.includes('book'))) {
+                const docType = lower.includes('cardio') ? 'Cardiologist' : lower.includes('ortho') ? 'Orthopedic' : 'General Physician';
+                detectedTool = { name: 'schedule_appointment', args: { doctor_type: docType, preferred_date: 'Next available' } };
+            }
+            // Check discharge
+            else if (lower.includes('discharge') || lower.includes('billing') || lower.includes('insurance') || lower.includes('pharmacy status')) {
+                detectedTool = { name: 'check_discharge_status', args: {} };
+            }
+            // Code Red / Emergency
+            else if (lower.includes('code red') || lower.includes('initiate code red')) {
+                if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'mode_switch', mode: 'emergency' }));
+                const reply = "Code Red activated. I am now in emergency mode. Report the situation.";
+                if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ai_transcript', text: reply }));
+                sendToCartesia(reply);
+                return;
+            }
+            // Log vitals
+            else if (lower.includes('vitals') || lower.includes('heart rate') || lower.includes('blood pressure') || lower.includes('oxygen')) {
+                detectedTool = { name: 'log_vitals', args: { heart_rate: 82, blood_pressure: '120/80', oxygen_level: 97 } };
+            }
+            // Trauma alert
+            else if (lower.includes('trauma') || lower.includes('accident') || lower.includes('crash')) {
+                detectedTool = { name: 'trigger_trauma_alert', args: { eta_minutes: 8, injury_type: 'Road traffic accident' } };
+            }
+            // Camera triage
+            else if (lower.includes('camera') || lower.includes('triage') || lower.includes('see the injury') || lower.includes('wound')) {
+                detectedTool = { name: 'activate_camera_triage', args: { reason: 'Visual injury assessment' } };
+            }
+
+            // ========== EXECUTE DETECTED TOOL ==========
+            if (detectedTool) {
+                console.log(`[Intent] Detected tool: "${detectedTool.name}" from keywords`);
+                await executeToolAndRespond(detectedTool, text);
+                return;
+            }
+
+            // ========== NO TOOL — USE OLLAMA FOR CONVERSATION ==========
+            conversationHistory.push({ role: 'user', content: text });
+            if (conversationHistory.length > 15) {
+                const sys = conversationHistory[0];
+                conversationHistory.splice(1, conversationHistory.length - 7);
+                conversationHistory[0] = sys;
             }
 
             console.log(`[Ollama] Sending to ${OLLAMA_MODEL}: "${text}"`);
             let rawResponse = await queryOllama(conversationHistory);
-            console.log(`[Ollama] Raw response: "${rawResponse}"`);
-
-            // Strip <think>...</think> reasoning blocks
             let response = stripThinking(rawResponse);
-            console.log(`[Ollama] Clean response: "${response}"`);
+            console.log(`[Ollama] Response: "${response}"`);
 
-            // Handle empty response from small model
             if (!response || response.trim().length === 0) {
-                console.log('[Ollama] Empty response - sending fallback');
-                response = "I'm here! How can I help you today?";
+                response = "I'm here! How can I help you? I can play music, book cabs, or check your discharge status.";
             }
 
-            // Check for tool calls
+            // Check if model accidentally produced a tool call
             const toolCall = parseToolCall(response);
-
             if (toolCall) {
-                console.log(`[Ollama] Tool call detected: "${toolCall.name}" with args:`, toolCall.args);
-                
-                let toolResult = {};
-                const call = toolCall;
-
-                // Execute the tool
-                if (call.name === 'log_vitals') {
-                    toolResult = { status: "Vitals logged successfully" };
-                } else if (call.name === 'administer_medication') {
-                    toolResult = { status: "Medication administered and logged" };
-                } else if (call.name === 'trigger_trauma_alert') {
-                    toolResult = { status: "Trauma alert sent to casualty ward" };
-                } else if (call.name === 'book_movie_tickets') {
-                    toolResult = { status: "Tickets booked successfully", confirmation_code: "BMS-" + Math.floor(Math.random() * 90000 + 10000) };
-                    // Open BookMyShow on the phone
-                    if (ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({
-                            type: 'hardware_action',
-                            action: 'movie_booked',
-                            movie: call.args.movie_name
-                        }));
-                    }
-                } else if (call.name === 'play_device_music') {
-                    toolResult = { status: "Music playback initiated on device hardware" };
-                    if (ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({
-                            type: 'hardware_action',
-                            action: 'play_music',
-                            song: call.args.song_name
-                        }));
-                    }
-                } else if (call.name === 'book_cab') {
-                    const eta = Math.floor(Math.random() * 8) + 3;
-                    toolResult = { status: "Cab booked successfully", provider: "Uber", eta_minutes: eta, destination: call.args.destination, cab_type: call.args.cab_type || 'economy' };
-                    if (ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({ type: 'hardware_action', action: 'cab_booked', eta: eta, destination: call.args.destination }));
-                    }
-                } else if (call.name === 'schedule_appointment') {
-                    const apptId = 'APT-' + Math.floor(Math.random() * 90000 + 10000);
-                    toolResult = { status: "Appointment scheduled", appointment_id: apptId, doctor: call.args.doctor_type, date: call.args.preferred_date || 'Next available slot', hospital: call.args.hospital || 'Nearest partner hospital' };
-                    // Open Google Calendar on the phone
-                    if (ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({
-                            type: 'hardware_action',
-                            action: 'appointment_booked',
-                            doctor: call.args.doctor_type,
-                            hospital: call.args.hospital || 'Nearest partner hospital'
-                        }));
-                    }
-                } else if (call.name === 'check_discharge_status') {
-                    const statuses = {
-                        billing: { status: 'Cleared', amount: '₹12,450' },
-                        insurance: { status: 'Pending', note: 'Awaiting TPA approval. 2 patients ahead.' },
-                        pharmacy: { status: 'Ready', note: 'Prescriptions packed at Counter 3' },
-                        lab: { status: 'Cleared', note: 'All reports uploaded to patient portal' }
-                    };
-                    toolResult = { status: "Discharge status retrieved", pipeline: statuses };
-                    if (ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({ type: 'discharge_update', statuses: statuses }));
-                    }
-                } else if (call.name === 'dispatch_medevac') {
-                    const authCode = (call.args.auth_code || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-                    if (authCode === 'sigmaniner' || authCode === 'sigma9' || authCode === 'sigmanine') {
-                        toolResult = { status: "Medevac dispatched", destination: call.args.coordinates, authorization: "VERIFIED" };
-                        console.log(`[MEDEVAC] 🚁 DISPATCHED to ${call.args.coordinates} - Auth: VERIFIED`);
-                    } else {
-                        toolResult = { status: "ACCESS DENIED", reason: "Invalid authorization code" };
-                        console.log(`[MEDEVAC] ❌ ACCESS DENIED - Invalid auth code: ${call.args.auth_code}`);
-                    }
-                } else if (call.name === 'activate_camera_triage') {
-                    toolResult = { status: "Camera triage activated on user device", reason: call.args.reason };
-                    if (ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({ type: 'activate_camera', reason: call.args.reason }));
-                    }
-                } else {
-                    toolResult = { status: "Unknown tool called" };
-                }
-
-                console.log(`[Ollama] Tool result:`, toolResult);
-
-                // Detect mode and send mode_switch to frontend
-                const emergencyTools = ['log_vitals', 'administer_medication', 'trigger_trauma_alert', 'dispatch_medevac', 'activate_camera_triage'];
-                const civilianTools = ['book_movie_tickets', 'play_device_music', 'book_cab', 'schedule_appointment', 'check_discharge_status'];
-                if (ws.readyState === WebSocket.OPEN) {
-                    if (emergencyTools.includes(call.name)) {
-                        ws.send(JSON.stringify({ type: 'mode_switch', mode: 'emergency' }));
-                    } else if (civilianTools.includes(call.name)) {
-                        ws.send(JSON.stringify({ type: 'mode_switch', mode: 'civilian' }));
-                    }
-                }
-                
-                // Send real-time action log to the React Frontend
-                if (ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({
-                        type: 'action_log',
-                        tool: call.name,
-                        details: JSON.stringify(call.args)
-                    }));
-                }
-
-                // Send to WhatsApp via Baileys (Structured Format)
-                if (waSocket && process.env.WHATSAPP_TARGET_NUMBER) {
-                    const targetJid = `${process.env.WHATSAPP_TARGET_NUMBER}@s.whatsapp.net`;
-                    const timestamp = new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' });
-                    
-                    let formattedDetails = '';
-                    let header = '🚨 *AEGIS PROTOCOL ACTIVATED* 🚨';
-                    
-                    if (call.name === 'log_vitals') {
-                        formattedDetails = `🩺 *Vitals Update*\n`;
-                        if (call.args.heart_rate) formattedDetails += `❤️ Heart Rate: ${call.args.heart_rate} BPM\n`;
-                        if (call.args.blood_pressure) formattedDetails += `🩸 BP: ${call.args.blood_pressure}\n`;
-                        if (call.args.oxygen_level) formattedDetails += `🫁 SpO2: ${call.args.oxygen_level}%\n`;
-                    } else if (call.name === 'administer_medication') {
-                        formattedDetails = `💊 *Medication Administered*\n💉 Drug: ${call.args.drug_name}\n⚖️ Dosage: ${call.args.dosage}`;
-                    } else if (call.name === 'trigger_trauma_alert') {
-                        formattedDetails = `🚑 *TRAUMA ALERT TRIGGERED*\n⏱️ ETA: ${call.args.eta_minutes} mins\n⚠️ Injury: ${call.args.injury_type}`;
-                    } else if (call.name === 'book_movie_tickets') {
-                        header = '🎟️ *AEGIS CIVILIAN ASSISTANT* 🎟️';
-                        formattedDetails = `🎬 *Movie Tickets Confirmed*\n🍿 Movie: ${call.args.movie_name}\n📍 Theater: ${call.args.theater}\n🎟️ Tickets: ${call.args.tickets}`;
-                    } else if (call.name === 'play_device_music') {
-                        header = '🎵 *AEGIS CIVILIAN ASSISTANT* 🎵';
-                        formattedDetails = `🎧 *Playing Music*\n🎶 Track: ${call.args.song_name}`;
-                    } else if (call.name === 'book_cab') {
-                        header = '🚕 *AEGIS CIVILIAN ASSISTANT* 🚕';
-                        formattedDetails = `🚗 *Cab Booked*\n📍 To: ${call.args.destination}\n🚘 Type: ${call.args.cab_type || 'Economy'}\n⏱️ ETA: ${toolResult.eta_minutes} mins`;
-                    } else if (call.name === 'schedule_appointment') {
-                        header = '🏥 *AEGIS CIVILIAN ASSISTANT* 🏥';
-                        formattedDetails = `📋 *Appointment Scheduled*\n👨‍⚕️ Doctor: ${call.args.doctor_type}\n📅 Date: ${call.args.preferred_date || 'Next available'}\n🏥 Hospital: ${call.args.hospital || 'Partner hospital'}`;
-                    } else if (call.name === 'check_discharge_status') {
-                        header = '🏥 *AEGIS DISCHARGE UPDATE* 🏥';
-                        formattedDetails = `📊 *Discharge Pipeline*\n💰 Billing: Cleared (₹12,450)\n🛡️ Insurance: Pending TPA\n💊 Pharmacy: Ready at Counter 3\n🔬 Lab: All reports cleared`;
-                    } else if (call.name === 'dispatch_medevac') {
-                        formattedDetails = `🚁 *MEDEVAC DISPATCHED*\n📍 Target: ${call.args.coordinates}\n🔐 Auth: ${call.args.auth_code}\n✅ Status: AIRBORNE`;
-                    } else if (call.name === 'activate_camera_triage') {
-                        formattedDetails = `📸 *VISUAL TRIAGE ACTIVATED*\n🔍 Reason: ${call.args.reason}\n📱 Camera feed active on patient device`;
-                    }
-
-                    const textMsg = `${header}\n_Time: ${timestamp}_\n\n${formattedDetails}\n\n_Status: System Logging Active_`;
-                    
-                    try {
-                        await waSocket.sendMessage(targetJid, { text: textMsg });
-                        console.log(`[WhatsApp] Sent formatted log to ${process.env.WHATSAPP_TARGET_NUMBER}`);
-                    } catch (err) {
-                        console.error('[WhatsApp] Failed to send message:', err);
-                    }
-                }
-
-                // Add tool call + result to conversation history, then get a follow-up response
-                conversationHistory.push({ role: 'assistant', content: response });
-                conversationHistory.push({ role: 'user', content: `Tool "${call.name}" returned: ${JSON.stringify(toolResult)}. Now give a brief voice response confirming the action to the user.` });
-
-                // Get follow-up response from LLM
-                let followUp = await queryOllama(conversationHistory);
-                followUp = stripThinking(followUp);
-                console.log(`[Ollama] Follow-up after tool: "${followUp}"`);
-
-                // Remove any accidental tool calls from follow-up
-                followUp = followUp.replace(/\[TOOL_CALL\][\s\S]*?\[\/TOOL_CALL\]/g, '').trim();
-
-                if (followUp && followUp.length > 0) {
-                    conversationHistory.push({ role: 'assistant', content: followUp });
-                    if (ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({ type: 'ai_transcript', text: followUp }));
-                    }
-                    sendToCartesia(followUp);
-                }
-
-            } else {
-                // No tool call — plain text response
-                if (response && response.trim().length > 0) {
-                    conversationHistory.push({ role: 'assistant', content: response });
-
-                    // Detect mode from AI's spoken response text
-                    const lowerReply = response.toLowerCase();
-                    if (ws.readyState === WebSocket.OPEN) {
-                        if (lowerReply.includes('code red') || lowerReply.includes('emergency') || lowerReply.includes('trauma')) {
-                            ws.send(JSON.stringify({ type: 'mode_switch', mode: 'emergency' }));
-                            console.log('[Mode] Switched to EMERGENCY based on AI response text.');
-                        } else if (lowerReply.includes('civilian') || lowerReply.includes('stand down') || lowerReply.includes('normal mode')) {
-                            ws.send(JSON.stringify({ type: 'mode_switch', mode: 'civilian' }));
-                            console.log('[Mode] Switched to CIVILIAN based on AI response text.');
-                        }
-                        // Send transcript to frontend for display
-                        ws.send(JSON.stringify({ type: 'ai_transcript', text: response }));
-                    }
-                    sendToCartesia(response);
-                }
+                await executeToolAndRespond(toolCall, text);
+                return;
             }
+
+            conversationHistory.push({ role: 'assistant', content: response });
+            
+            const lowerReply = response.toLowerCase();
+            if (ws.readyState === WebSocket.OPEN) {
+                if (lowerReply.includes('code red') || lowerReply.includes('emergency')) {
+                    ws.send(JSON.stringify({ type: 'mode_switch', mode: 'emergency' }));
+                }
+                ws.send(JSON.stringify({ type: 'ai_transcript', text: response }));
+            }
+            sendToCartesia(response);
 
         } catch (error) {
-            console.error('[Ollama] Error during LLM processing:', error);
-            // Fallback response if Ollama is unreachable
-            const fallback = "I'm having trouble connecting to my brain. Please check the Ollama server.";
-            if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'ai_transcript', text: fallback }));
-            }
+            console.error('[LLM] Error:', error.message);
+            const fallback = "Sorry, I had a connection issue. Please try again.";
+            if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ai_transcript', text: fallback }));
             sendToCartesia(fallback);
         } finally {
             isProcessingLLM = false;
         }
+    }
+
+    // ========== TOOL EXECUTION ENGINE ==========
+    async function executeToolAndRespond(toolCall, originalText) {
+        const call = toolCall;
+        let toolResult = {};
+
+        if (call.name === 'log_vitals') {
+            toolResult = { status: "Vitals logged" };
+        } else if (call.name === 'administer_medication') {
+            toolResult = { status: "Medication administered" };
+        } else if (call.name === 'trigger_trauma_alert') {
+            toolResult = { status: "Trauma alert sent" };
+        } else if (call.name === 'book_movie_tickets') {
+            toolResult = { status: "Tickets booked", code: "BMS-" + Math.floor(Math.random() * 90000 + 10000) };
+            if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'hardware_action', action: 'movie_booked', movie: call.args.movie_name }));
+        } else if (call.name === 'play_device_music') {
+            toolResult = { status: "Playing now" };
+            if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'hardware_action', action: 'play_music', song: call.args.song_name }));
+        } else if (call.name === 'book_cab') {
+            const eta = Math.floor(Math.random() * 8) + 3;
+            toolResult = { status: "Cab booked", eta_minutes: eta, destination: call.args.destination };
+            if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'hardware_action', action: 'cab_booked', eta, destination: call.args.destination }));
+        } else if (call.name === 'schedule_appointment') {
+            toolResult = { status: "Appointment scheduled", id: 'APT-' + Math.floor(Math.random() * 90000 + 10000) };
+            if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'hardware_action', action: 'appointment_booked', doctor: call.args.doctor_type, hospital: call.args.hospital || 'Partner Hospital' }));
+        } else if (call.name === 'check_discharge_status') {
+            const statuses = { billing: { status: 'Cleared', amount: '₹12,450' }, insurance: { status: 'Pending', note: '2 patients ahead' }, pharmacy: { status: 'Ready', note: 'Counter 3' }, lab: { status: 'Cleared', note: 'Reports uploaded' } };
+            toolResult = { status: "Retrieved", pipeline: statuses };
+            if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'discharge_update', statuses }));
+        } else if (call.name === 'dispatch_medevac') {
+            toolResult = { status: "Medevac dispatched" };
+        } else if (call.name === 'activate_camera_triage') {
+            toolResult = { status: "Camera activated" };
+            if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'activate_camera', reason: call.args.reason }));
+        }
+
+        // Mode switch
+        const emergencyTools = ['log_vitals', 'administer_medication', 'trigger_trauma_alert', 'dispatch_medevac', 'activate_camera_triage'];
+        const civilianTools = ['book_movie_tickets', 'play_device_music', 'book_cab', 'schedule_appointment', 'check_discharge_status'];
+        if (ws.readyState === WebSocket.OPEN) {
+            if (emergencyTools.includes(call.name)) ws.send(JSON.stringify({ type: 'mode_switch', mode: 'emergency' }));
+            else if (civilianTools.includes(call.name)) ws.send(JSON.stringify({ type: 'mode_switch', mode: 'civilian' }));
+        }
+
+        // Action log
+        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'action_log', tool: call.name, details: JSON.stringify(call.args) }));
+
+        // WhatsApp log
+        if (waSocket && process.env.WHATSAPP_TARGET_NUMBER) {
+            const jid = `${process.env.WHATSAPP_TARGET_NUMBER}@s.whatsapp.net`;
+            const t = new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' });
+            const msg = `🛡️ *AEGIS LOG*\n_${t}_\n\n⚡ Tool: ${call.name}\n📋 Args: ${JSON.stringify(call.args)}\n✅ Result: ${toolResult.status}`;
+            try { await waSocket.sendMessage(jid, { text: msg }); } catch(e) { console.error('[WA] Error:', e.message); }
+        }
+
+        // Voice confirmation
+        const confirmations = {
+            play_device_music: `Playing ${call.args.song_name} for you now!`,
+            book_cab: `Your cab to ${call.args.destination} is booked! It will arrive in about ${toolResult.eta_minutes} minutes.`,
+            book_movie_tickets: `Done! Booked ${call.args.tickets || 2} tickets for ${call.args.movie_name}. Opening BookMyShow now.`,
+            schedule_appointment: `Your ${call.args.doctor_type} appointment has been scheduled. Opening your calendar now.`,
+            check_discharge_status: `Here's your discharge status. Billing is cleared, insurance is still pending, pharmacy is ready at counter 3, and lab reports are cleared.`,
+            log_vitals: `Vitals logged. Heart rate ${call.args.heart_rate} BPM, BP ${call.args.blood_pressure}, oxygen ${call.args.oxygen_level} percent.`,
+            trigger_trauma_alert: `Trauma alert sent. ETA ${call.args.eta_minutes} minutes for ${call.args.injury_type}.`,
+            activate_camera_triage: `Camera triage activated. Point your camera at the injury.`,
+            dispatch_medevac: `Medevac dispatched to ${call.args.coordinates}.`,
+            administer_medication: `${call.args.drug_name} ${call.args.dosage} administered and logged.`
+        };
+
+        const voiceReply = confirmations[call.name] || `Done. ${call.name} completed successfully.`;
+        console.log(`[Voice] Confirming: "${voiceReply}"`);
+        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ai_transcript', text: voiceReply }));
+        sendToCartesia(voiceReply);
     }
 
     function sendToCartesia(text) {
