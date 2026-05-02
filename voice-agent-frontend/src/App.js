@@ -108,20 +108,38 @@ function App() {
               };
 
               if (data.action === 'play_music') {
-                setNowPlaying(data.song);
+                setNowPlaying(`Searching: ${data.song}...`);
                 const songQuery = encodeURIComponent(data.song);
                 
-                // Remove existing player if any
+                // Remove existing iframe if any
                 const existing = document.getElementById('yt-player-aegis');
                 if (existing) existing.remove();
                 
-                // Embed invisible YouTube player to auto-play the search result
-                const iframe = document.createElement('iframe');
-                iframe.src = `https://www.youtube.com/embed?listType=search&list=${songQuery}&autoplay=1`;
-                iframe.allow = "autoplay";
-                iframe.style.display = 'none';
-                iframe.id = 'yt-player-aegis';
-                document.body.appendChild(iframe);
+                // Fetch real song preview from iTunes API and play natively
+                fetch(`https://itunes.apple.com/search?term=${songQuery}&entity=song&limit=1`)
+                  .then(res => res.json())
+                  .then(json => {
+                    if (json.results && json.results.length > 0) {
+                      const track = json.results[0];
+                      setNowPlaying(`${track.trackName} - ${track.artistName}`);
+                      if (musicRef.current) {
+                        musicRef.current.pause();
+                      }
+                      musicRef.current = new Audio(track.previewUrl);
+                      musicRef.current.volume = 0.8;
+                      musicRef.current.play().catch(e => {
+                        console.log('[Music] Autoplay blocked:', e);
+                        // Fallback: If blocked, redirect to YouTube Music
+                        window.location.href = `https://music.youtube.com/search?q=${songQuery}`;
+                      });
+                    } else {
+                      setNowPlaying(`Could not find: ${data.song}`);
+                    }
+                  })
+                  .catch(err => {
+                    console.error('[Music] API Error:', err);
+                    window.location.href = `https://music.youtube.com/search?q=${songQuery}`;
+                  });
               }
               else if (data.action === 'cab_booked') {
                 setCabInfo({ eta: data.eta, destination: data.destination });
