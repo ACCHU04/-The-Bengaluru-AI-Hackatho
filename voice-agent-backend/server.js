@@ -92,39 +92,24 @@ const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
 // =============================================
 // SYSTEM PROMPT (Optimized for DeepSeek R1 1.5B)
 // =============================================
-const SYSTEM_PROMPT = `You are Aegis, a dual-state voice assistant.
+const SYSTEM_PROMPT = `You are Aegis, a helpful voice assistant. Keep all replies to 1-2 short sentences.
 
-CIVILIAN MODE (default): Friendly assistant. Help book cabs, movies, play music, check discharge status, schedule appointments. Be conversational and brief.
+If the user wants to book a cab, play music, book movies, schedule appointments, or check discharge status, use a tool.
 
-CODE RED MODE: If user says "code red" or describes a medical emergency, switch to emergency mode. Be ultra-concise (max 10 words per sentence). Log vitals, administer meds, trigger trauma alerts.
+To use a tool, reply with ONLY:
+[TOOL_CALL]{"name":"tool_name","args":{...}}[/TOOL_CALL]
 
-TOOLS: When you need to perform an action, output EXACTLY this format (nothing else before or after):
-[TOOL_CALL]{"name":"TOOL_NAME","args":{ARGUMENTS}}[/TOOL_CALL]
+Tools: book_cab(destination), play_device_music(song_name), book_movie_tickets(movie_name,theater,tickets), schedule_appointment(doctor_type), check_discharge_status(), log_vitals(heart_rate,blood_pressure,oxygen_level), administer_medication(drug_name,dosage), trigger_trauma_alert(eta_minutes,injury_type), dispatch_medevac(coordinates,auth_code), activate_camera_triage(reason)
 
-Available tools:
-- log_vitals: args: heart_rate(number), blood_pressure(string), oxygen_level(number)
-- administer_medication: args: drug_name(string), dosage(string)
-- trigger_trauma_alert: args: eta_minutes(number), injury_type(string)
-- dispatch_medevac: args: coordinates(string), auth_code(string)
-- activate_camera_triage: args: reason(string)
-- book_movie_tickets: args: movie_name(string), theater(string), tickets(number)
-- play_device_music: args: song_name(string)
-- book_cab: args: destination(string), cab_type(string)
-- schedule_appointment: args: doctor_type(string), preferred_date(string), hospital(string)
-- check_discharge_status: args: patient_id(string), check_type(string)
-
-RULES:
-- Keep responses SHORT (1-2 sentences max) since this is voice
-- If calling a tool, output ONLY the [TOOL_CALL] block
-- Never use markdown formatting
-- Respond naturally as a voice assistant`;
+If "code red" is said, switch to emergency mode: be ultra-brief and use only medical tools.
+Otherwise be friendly and conversational. Never use markdown.`;
 
 // =============================================
 // OLLAMA API HELPER
 // =============================================
 async function queryOllama(messages) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000);
+    const timeout = setTimeout(() => controller.abort(), 60000);
 
     try {
         const response = await fetch(OLLAMA_URL, {
@@ -136,7 +121,7 @@ async function queryOllama(messages) {
                 stream: false,
                 options: {
                     temperature: 0.7,
-                    num_predict: 256,
+                    num_predict: 512,
                     top_p: 0.9
                 }
             }),
@@ -154,8 +139,8 @@ async function queryOllama(messages) {
     } catch (error) {
         clearTimeout(timeout);
         if (error.name === 'AbortError') {
-            console.error('[Ollama] Request timed out (30s)');
-            return 'I need a moment. Please try again.';
+            console.error('[Ollama] Request timed out (60s)');
+            return 'Sorry, my brain is taking too long. Please try again.';
         }
         throw error;
     }
@@ -195,39 +180,47 @@ wss.on('connection', (ws) => {
         { role: 'system', content: SYSTEM_PROMPT }
     ];
 
-    // 1. Initialize Cartesia Connection First (so it's ready to receive)
+    // 1. Initialize Cartesia Connection with Auto-Reconnect
     const cartesiaUrl = `wss://api.cartesia.ai/tts/websocket?api_key=${process.env.CARTESIA_API_KEY}&cartesia_version=2024-06-10`;
-    const cartesiaWs = new WebSocket(cartesiaUrl);
+    let cartesiaWs = null;
 
-    cartesiaWs.on('open', () => {
-        console.log('[Cartesia] WebSocket connection opened.');
-    });
+    function connectCartesia() {
+        cartesiaWs = new WebSocket(cartesiaUrl);
 
-    cartesiaWs.on('message', (data) => {
-        try {
-            const message = JSON.parse(data.toString());
-            if (message.type === 'chunk') {
-                const audioBuffer = Buffer.from(message.data, 'base64');
-                if (ws.readyState === WebSocket.OPEN) {
-                    ws.send(audioBuffer);
+        cartesiaWs.on('open', () => {
+            console.log('[Cartesia] WebSocket connection opened.');
+        });
+
+        cartesiaWs.on('message', (data) => {
+            try {
+                const message = JSON.parse(data.toString());
+                if (message.type === 'chunk') {
+                    const audioBuffer = Buffer.from(message.data, 'base64');
+                    if (ws.readyState === WebSocket.OPEN) {
+                        ws.send(audioBuffer);
+                    }
+                } else if (message.type === 'done') {
+                    console.log(`[Cartesia] Finished streaming audio for context: ${message.context_id}`);
+                } else if (message.type === 'error') {
+                    console.error('[Cartesia] Error from API:', message.error);
                 }
-            } else if (message.type === 'done') {
-                console.log(`[Cartesia] Finished streaming audio for context: ${message.context_id}`);
-            } else if (message.type === 'error') {
-                console.error('[Cartesia] Error from API:', message.error);
+            } catch (error) {
+                console.error('[Cartesia] Error parsing message:', error);
             }
-        } catch (error) {
-            console.error('[Cartesia] Error parsing message:', error);
-        }
-    });
+        });
 
-    cartesiaWs.on('error', (error) => {
-        console.error('[Cartesia] WebSocket error:', error);
-    });
+        cartesiaWs.on('error', (error) => {
+            console.error('[Cartesia] WebSocket error:', error.message);
+        });
 
-    cartesiaWs.on('close', () => {
-        console.log('[Cartesia] WebSocket connection closed.');
-    });
+        cartesiaWs.on('close', () => {
+            console.log('[Cartesia] WebSocket closed. Reconnecting in 2s...');
+            if (ws.readyState === WebSocket.OPEN) {
+                setTimeout(connectCartesia, 2000);
+            }
+        });
+    }
+    connectCartesia();
 
     // 2. LLM Processing (Ollama / DeepSeek R1)
     let isProcessingLLM = false;
@@ -257,6 +250,12 @@ wss.on('connection', (ws) => {
             // Strip <think>...</think> reasoning blocks
             let response = stripThinking(rawResponse);
             console.log(`[Ollama] Clean response: "${response}"`);
+
+            // Handle empty response from small model
+            if (!response || response.trim().length === 0) {
+                console.log('[Ollama] Empty response - sending fallback');
+                response = "I'm here! How can I help you today?";
+            }
 
             // Check for tool calls
             const toolCall = parseToolCall(response);
