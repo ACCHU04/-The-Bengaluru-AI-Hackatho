@@ -25,6 +25,7 @@ function App() {
   const mediaRecorderRef = useRef(null);
   const audioContextRef = useRef(null);
   const nextPlayTimeRef = useRef(0);
+  const musicRef = useRef(null);
 
   // Apply emergency class to body for background transition
   useEffect(() => {
@@ -71,6 +72,12 @@ function App() {
             else if (data.type === 'mode_switch') {
               console.log(`[Frontend] Mode switch: ${data.mode}`);
               setMode(data.mode);
+              // Kill music if switching to emergency
+              if (data.mode === 'emergency' && musicRef.current) {
+                musicRef.current.pause();
+                musicRef.current = null;
+                setNowPlaying(null);
+              }
             }
             
             else if (data.type === 'action_log') {
@@ -87,7 +94,19 @@ function App() {
               if (data.action === 'play_music') {
                 console.log(`[Frontend] Playing music: ${data.song}`);
                 setNowPlaying(data.song);
-                setTimeout(() => setNowPlaying(null), 15000);
+                // Play actual audio using HTML5 Audio
+                try {
+                  if (musicRef.current) {
+                    musicRef.current.pause();
+                  }
+                  // Use a royalty-free ambient track
+                  musicRef.current = new Audio('https://cdn.pixabay.com/audio/2022/05/27/audio_1808fbf07a.mp3');
+                  musicRef.current.loop = true;
+                  musicRef.current.volume = 0.4;
+                  musicRef.current.play().catch(e => console.log('[Music] Autoplay blocked:', e));
+                } catch(e) {
+                  console.log('[Music] Playback error:', e);
+                }
               }
             }
 
@@ -159,8 +178,14 @@ function App() {
       audioContextRef.current.close();
       audioContextRef.current = null;
     }
+    if (musicRef.current) {
+      musicRef.current.pause();
+      musicRef.current = null;
+    }
     setIsConnected(false);
     setStatus('Disconnected');
+    setNowPlaying(null);
+    setMode('civilian');
   };
 
   const playSeamlessAudio = (arrayBuffer) => {
