@@ -240,7 +240,12 @@ wss.on('connection', (ws) => {
 
             // Play music
             if ((lower.includes('play') || lower.includes('song') || lower.includes('music')) && !lower.includes('code red')) {
-                const songName = text.replace(/^.*?(play|put on|start)\s*/i, '').replace(/\s*(on youtube|on spotify|please|for me|in the youtube|in youtube).*$/i, '').trim() || 'Arijit Singh';
+                let songName = text.replace(/^.*?(play|put on|start|listen to)\s*/i, '').replace(/\s*(on youtube|on spotify|please|for me|in the youtube|in youtube|on my phone|songs?|music).*$/gi, '').trim();
+                // If only filler words remain, use the whole phrase after 'play'
+                if (!songName || songName.length < 2 || ['a', 'some', 'the', 'my'].includes(songName.toLowerCase())) {
+                    songName = text.replace(/^.*?(play|put on|start|listen to)\s*/i, '').replace(/\s*(on youtube|on spotify|in the youtube|in youtube|on my phone)$/gi, '').trim();
+                }
+                if (!songName || songName.length < 2) songName = 'Arijit Singh top songs';
                 detectedTool = { name: 'play_device_music', args: { song_name: songName } };
             }
             // Book cab

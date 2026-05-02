@@ -27,6 +27,7 @@ function App() {
   const [cabInfo, setCabInfo] = useState(null);
   const [showCamera, setShowCamera] = useState(false);
   const [cameraReason, setCameraReason] = useState('');
+  const [pendingAction, setPendingAction] = useState(null);
 
   const wsRef = useRef(null);
   const mediaRecorderRef = useRef(null);
@@ -101,35 +102,23 @@ function App() {
             else if (data.type === 'hardware_action') {
               if (data.action === 'play_music') {
                 setNowPlaying(data.song);
-                try {
-                  if (musicRef.current) musicRef.current.pause();
-                  // Play ambient background audio locally
-                  musicRef.current = new Audio('https://cdn.pixabay.com/audio/2022/10/18/audio_e58e623e40.mp3');
-                  musicRef.current.loop = true;
-                  musicRef.current.volume = 0.5;
-                  musicRef.current.play().catch(e => console.log('[Music] Autoplay blocked:', e));
-                } catch(e) { console.log('[Music] Error:', e); }
-                // Open YouTube Music with the requested song
                 const songQuery = encodeURIComponent(data.song);
-                window.open(`https://music.youtube.com/search?q=${songQuery}`, '_blank');
+                setPendingAction({ type: 'music', label: `▶️ Open YouTube Music: ${data.song}`, url: `https://music.youtube.com/search?q=${songQuery}` });
               }
               else if (data.action === 'cab_booked') {
                 setCabInfo({ eta: data.eta, destination: data.destination });
-                setTimeout(() => setCabInfo(null), 20000);
-                // Open Uber with the destination pre-filled
+                setTimeout(() => setCabInfo(null), 30000);
                 const dest = encodeURIComponent(data.destination);
-                window.open(`https://m.uber.com/ul/?action=setPickup&pickup=my_location&dropoff[formatted_address]=${dest}`, '_blank');
+                setPendingAction({ type: 'cab', label: `🚕 Open Uber → ${data.destination}`, url: `https://m.uber.com/ul/?action=setPickup&pickup=my_location&dropoff[formatted_address]=${dest}` });
               }
               else if (data.action === 'movie_booked') {
-                // Open BookMyShow with the movie search
                 const movie = encodeURIComponent(data.movie);
-                window.open(`https://in.bookmyshow.com/explore/movies-bengaluru?q=${movie}`, '_blank');
+                setPendingAction({ type: 'movie', label: `🎬 Open BookMyShow: ${data.movie}`, url: `https://in.bookmyshow.com/explore/movies-bengaluru?q=${movie}` });
               }
               else if (data.action === 'appointment_booked') {
-                // Open Google Calendar to create the appointment
                 const title = encodeURIComponent(`Doctor: ${data.doctor}`);
-                const details = encodeURIComponent(`Hospital: ${data.hospital}\nBooked via Aegis Voice Agent`);
-                window.open(`https://calendar.google.com/calendar/r/eventedit?text=${title}&details=${details}`, '_blank');
+                const details = encodeURIComponent(`Hospital: ${data.hospital}\nBooked via Aegis`);
+                setPendingAction({ type: 'appointment', label: `📅 Open Calendar: ${data.doctor}`, url: `https://calendar.google.com/calendar/r/eventedit?text=${title}&details=${details}` });
               }
             }
 
@@ -412,6 +401,22 @@ function App() {
           <div className="music-eq">
             <div className="eq-bar"></div><div className="eq-bar"></div><div className="eq-bar"></div><div className="eq-bar"></div>
           </div>
+        </div>
+      )}
+
+      {/* Tappable Action Card — Opens real apps on phone */}
+      {pendingAction && (
+        <div className="pending-action-card">
+          <a
+            href={pendingAction.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="pending-action-btn"
+            onClick={() => setTimeout(() => setPendingAction(null), 2000)}
+          >
+            {pendingAction.label}
+          </a>
+          <button className="pending-action-dismiss" onClick={() => setPendingAction(null)}>✕</button>
         </div>
       )}
 

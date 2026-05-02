@@ -663,3 +663,63 @@ body.emergency-mode {
     padding-bottom: env(safe-area-inset-bottom, 10px);
   }
 }
+
+/* ===== Tappable Action Card ===== */
+.pending-action-card {
+  position: fixed;
+  bottom: 100px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+  from { transform: translateX(-50%) translateY(40px); opacity: 0; }
+  to { transform: translateX(-50%) translateY(0); opacity: 1; }
+}
+
+.pending-action-btn {
+  display: block;
+  padding: 16px 28px;
+  background: linear-gradient(135deg, #007AFF, #00C853);
+  color: white;
+  font-family: 'Inter', sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+  text-decoration: none;
+  border-radius: 16px;
+  box-shadow: 0 4px 24px rgba(0, 122, 255, 0.4), 0 0 60px rgba(0, 200, 83, 0.15);
+  animation: pulseGlow 2s ease-in-out infinite;
+  text-align: center;
+  max-width: 85vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 4px 24px rgba(0, 122, 255, 0.4), 0 0 60px rgba(0, 200, 83, 0.15); }
+  50% { box-shadow: 0 4px 32px rgba(0, 122, 255, 0.6), 0 0 80px rgba(0, 200, 83, 0.3); }
+}
+
+.pending-action-btn:active {
+  transform: scale(0.96);
+}
+
+.pending-action-dismiss {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.2);
+  color: white;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
