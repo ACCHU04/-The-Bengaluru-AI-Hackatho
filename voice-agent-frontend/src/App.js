@@ -1,4 +1,14 @@
-import React, { useState, useEffect, useRef } from 'react';
+/**
+ * AEGIS PROTOCOL — App.js (v3 — Fixed Audio + Laptop YouTube)
+ *
+ * KEY FIXES:
+ *  1. Audio: Cartesia sends pcm_f32le (Float32) at 44100Hz. Fixed AudioContext to match.
+ *  2. YouTube: Opens in new tab on laptop. Fallback button if popup blocked.
+ *  3. Barge-in: Properly resets AudioContext on clear_buffer.
+ *  4. Mic: echoCancellation + noiseSuppression enabled for laptop use.
+ */
+
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './App.css';
 
 const EMERGENCY_TOOLS = ['log_vitals', 'administer_medication', 'trigger_trauma_alert', 'dispatch_medevac', 'activate_camera_triage'];
@@ -37,47 +47,77 @@ function App() {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const cameraStreamRef = useRef(null);
+  const aiTranscriptTimer = useRef(null);
 
   useEffect(() => {
-    if (mode === 'emergency') {
-      document.body.classList.add('emergency-mode');
-    } else {
-      document.body.classList.remove('emergency-mode');
-    }
+    document.body.classList.toggle('emergency-mode', mode === 'emergency');
     return () => document.body.classList.remove('emergency-mode');
   }, [mode]);
 
-  useEffect(() => {
-    return () => {
-      stopConversation();
-      stopCamera();
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => () => stopConversation(), []); // eslint-disable-line
+
+  // ── Reset AudioContext (barge-in / clear_buffer) ────────────────────────────
+  const resetAudioContext = useCallback(() => {
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(() => {});
+    }
+    const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 44100 });
+    audioContextRef.current = ctx;
+    nextPlayTimeRef.current = ctx.currentTime;
+  }, []);
+
+  // ── Play PCM float32 audio chunk from Cartesia ──────────────────────────────
+  const playChunk = useCallback((arrayBuffer) => {
+    const ctx = audioContextRef.current;
+    if (!ctx) return;
+
+    // Cartesia sends pcm_f32le — each sample is a 4-byte float
+    const float32 = new Float32Array(arrayBuffer);
+    const buffer = ctx.createBuffer(1, float32.length, 44100);
+    buffer.getChannelData(0).set(float32);
+
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ctx.destination);
+
+    const now = ctx.currentTime;
+    if (now > nextPlayTimeRef.current) nextPlayTimeRef.current = now;
+    source.start(nextPlayTimeRef.current);
+    nextPlayTimeRef.current += buffer.duration;
   }, []);
 
   const startConversation = async () => {
     try {
+      setActionLogs([]);
+      setNowPlaying(null);
+      setMode('civilian');
+      setAiTranscript('');
+      setPendingAction(null);
+
+      // Init AudioContext at 44100Hz to match Cartesia output
+      resetAudioContext();
+
+      // Connect WebSocket
       const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
       const wsHost = window.location.host;
-      console.log(`[Frontend] Connecting to backend at: ${protocol}://${wsHost}`);
+      console.log(`[WS] Connecting to ${protocol}://${wsHost}`);
       wsRef.current = new WebSocket(`${protocol}://${wsHost}`);
 
       wsRef.current.onopen = () => {
         setIsConnected(true);
         setStatus('Listening');
+        console.log('[WS] Connected');
       };
 
       wsRef.current.onmessage = async (event) => {
+        // ── JSON control message ──
         if (typeof event.data === 'string') {
           try {
             const data = JSON.parse(event.data);
 
             if (data.type === 'clear_buffer') {
-              if (audioContextRef.current) {
-                audioContextRef.current.close();
-                audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-                nextPlayTimeRef.current = audioContextRef.current.currentTime;
-              }
+              console.log('[Frontend] Barge-in — clearing audio');
+              resetAudioContext();
               setStatus('Listening');
             }
 
@@ -91,57 +131,46 @@ function App() {
             }
 
             else if (data.type === 'action_log') {
-              setActionLogs((prev) => [{
+              setActionLogs(prev => [{
                 time: new Date().toLocaleTimeString(),
                 tool: data.tool,
                 details: data.details,
-                isEmergency: EMERGENCY_TOOLS.includes(data.tool)
-              }, ...prev].slice(0, 10));
+                isEmergency: EMERGENCY_TOOLS.includes(data.tool),
+              }, ...prev].slice(0, 20));
             }
 
             else if (data.type === 'hardware_action') {
-              const triggerApp = (intentUrl) => {
-                const iframe = document.createElement('iframe');
-                iframe.style.display = 'none';
-                iframe.src = intentUrl;
-                document.body.appendChild(iframe);
-                setTimeout(() => iframe.remove(), 3000);
-              };
-
               if (data.action === 'play_music') {
                 setNowPlaying(data.song);
                 const songQuery = encodeURIComponent(data.song);
                 const ytUrl = `https://music.youtube.com/search?q=${songQuery}`;
-                
-                // On a laptop, open in a new tab.
+
+                // Open in a new tab (laptop). If blocked, show fallback button.
                 const newWindow = window.open(ytUrl, '_blank');
-                
-                // If blocked by browser popup blocker, DO NOT navigate current tab (which kills session).
-                // Instead, tell the user and provide a manual link.
                 if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
-                  setAiTranscript('Popup blocked! Please click the icon in your address bar to always allow popups.');
-                  // Provide a clickable card as fallback
-                  setPendingAction({
-                    type: 'music',
-                    label: `▶️ Open YouTube: ${data.song}`,
-                    url: ytUrl
-                  });
+                  setPendingAction({ type: 'music', label: `▶️ Open YouTube: ${data.song}`, url: ytUrl });
                 }
               }
               else if (data.action === 'cab_booked') {
                 setCabInfo({ eta: data.eta, destination: data.destination });
                 setTimeout(() => setCabInfo(null), 30000);
                 const dest = encodeURIComponent(data.destination);
-                triggerApp(`intent://?action=setPickup&pickup=my_location&dropoff[formatted_address]=${dest}#Intent;scheme=uber;package=com.ubercab;end;`);
+                const uberUrl = `https://m.uber.com/ul/?action=setPickup&pickup=my_location&dropoff[formatted_address]=${dest}`;
+                const newWindow = window.open(uberUrl, '_blank');
+                if (!newWindow) setPendingAction({ type: 'cab', label: `🚕 Open Uber: ${data.destination}`, url: uberUrl });
               }
               else if (data.action === 'movie_booked') {
                 const movie = encodeURIComponent(data.movie);
-                triggerApp(`intent://explore/movies-bengaluru?q=${movie}#Intent;scheme=https;package=com.bt.bms;end;`);
+                const bmsUrl = `https://in.bookmyshow.com/explore/movies-bengaluru?q=${movie}`;
+                const newWindow = window.open(bmsUrl, '_blank');
+                if (!newWindow) setPendingAction({ type: 'movie', label: `🎬 Open BookMyShow: ${data.movie}`, url: bmsUrl });
               }
               else if (data.action === 'appointment_booked') {
                 const title = encodeURIComponent(`Doctor: ${data.doctor}`);
                 const details = encodeURIComponent(`Hospital: ${data.hospital}\nBooked via Aegis`);
-                triggerApp(`intent://calendar.google.com/calendar/r/eventedit?text=${title}&details=${details}#Intent;scheme=https;package=com.google.android.calendar;end;`);
+                const calUrl = `https://calendar.google.com/calendar/r/eventedit?text=${title}&details=${details}`;
+                const newWindow = window.open(calUrl, '_blank');
+                if (!newWindow) setPendingAction({ type: 'appointment', label: `📋 Open Calendar`, url: calUrl });
               }
             }
 
@@ -158,21 +187,27 @@ function App() {
 
             else if (data.type === 'ai_transcript') {
               setAiTranscript(data.text);
-              setTimeout(() => setAiTranscript(''), 8000);
+              clearTimeout(aiTranscriptTimer.current);
+              aiTranscriptTimer.current = setTimeout(() => setAiTranscript(''), 7000);
             }
 
           } catch (e) {
-            console.error('Error parsing message:', e);
+            console.error('[WS] JSON parse error:', e);
           }
+          return;
         }
-        else if (event.data instanceof Blob) {
-          setStatus('AI Speaking');
-          const arrayBuffer = await event.data.arrayBuffer();
-          playSeamlessAudio(arrayBuffer);
-          setTimeout(() => {
-            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) setStatus('Listening');
-          }, 1500);
-        }
+
+        // ── Binary audio chunk from Cartesia ──
+        const arrayBuffer = await (event.data instanceof Blob
+          ? event.data.arrayBuffer()
+          : Promise.resolve(event.data));
+
+        setStatus('AI Speaking');
+        playChunk(arrayBuffer);
+
+        setTimeout(() => {
+          if (wsRef.current?.readyState === WebSocket.OPEN) setStatus('Listening');
+        }, 2000);
       };
 
       wsRef.current.onclose = () => {
@@ -183,30 +218,31 @@ function App() {
         setMode('civilian');
       };
 
-      audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-      nextPlayTimeRef.current = audioContextRef.current.currentTime;
+      wsRef.current.onerror = (e) => {
+        console.error('[WS] Error:', e);
+        setStatus('Connection error');
+      };
 
-      // Laptop-friendly microphone settings (reduces echo from speakers)
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          sampleRate: 16000
-        } 
+      // ── Mic capture (with echo cancellation for laptop) ──
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 16000 },
       });
+
       mediaRecorderRef.current = new MediaRecorder(stream);
-      mediaRecorderRef.current.ondataavailable = (event) => {
-        if (event.data.size > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
-          wsRef.current.send(event.data);
+      mediaRecorderRef.current.ondataavailable = (e) => {
+        if (e.data.size > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(e.data);
         }
       };
-      // Send smaller chunks more frequently for lower latency and better stability
       mediaRecorderRef.current.start(250);
 
-    } catch (error) {
-      console.error('Error starting conversation:', error);
-      alert('Failed to access microphone or connect to server.');
+    } catch (err) {
+      console.error('[Start] Error:', err);
+      if (err.name === 'NotAllowedError') {
+        alert('Microphone permission denied. Please allow microphone access and try again.');
+      } else {
+        alert('Error: ' + err.message);
+      }
       setStatus('Disconnected');
       setIsConnected(false);
     }
@@ -218,7 +254,7 @@ function App() {
       mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
     }
     if (wsRef.current) wsRef.current.close();
-    if (audioContextRef.current) { audioContextRef.current.close(); audioContextRef.current = null; }
+    if (audioContextRef.current) { audioContextRef.current.close().catch(() => {}); audioContextRef.current = null; }
     if (musicRef.current) { musicRef.current.pause(); musicRef.current = null; }
     stopCamera();
     setIsConnected(false);
@@ -234,7 +270,7 @@ function App() {
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
       }
-    } catch(e) {
+    } catch (e) {
       console.error('[Camera] Error:', e);
       alert('Camera access denied.');
       setShowCamera(false);
@@ -262,22 +298,6 @@ function App() {
       cameraStreamRef.current = null;
     }
     setShowCamera(false);
-  };
-
-  const playSeamlessAudio = (arrayBuffer) => {
-    if (!audioContextRef.current) return;
-    const int16Array = new Int16Array(arrayBuffer);
-    const float32Array = new Float32Array(int16Array.length);
-    for (let i = 0; i < int16Array.length; i++) float32Array[i] = int16Array[i] / 32768.0;
-    const audioBuffer = audioContextRef.current.createBuffer(1, float32Array.length, 16000);
-    audioBuffer.getChannelData(0).set(float32Array);
-    const source = audioContextRef.current.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(audioContextRef.current.destination);
-    const currentTime = audioContextRef.current.currentTime;
-    if (currentTime > nextPlayTimeRef.current) nextPlayTimeRef.current = currentTime;
-    source.start(nextPlayTimeRef.current);
-    nextPlayTimeRef.current += audioBuffer.duration;
   };
 
   const getStatusClass = () => {
@@ -308,7 +328,7 @@ function App() {
   const formatLogDetails = (tool, detailsStr) => {
     try {
       const args = JSON.parse(detailsStr);
-      switch(tool) {
+      switch (tool) {
         case 'book_movie_tickets':
           return `🍿 ${args.movie_name} | 📍 ${args.theater} | 🎟️ ${args.tickets} tickets`;
         case 'play_device_music':
@@ -337,7 +357,7 @@ function App() {
         default:
           return detailsStr;
       }
-    } catch(e) {
+    } catch (e) {
       return detailsStr;
     }
   };
@@ -363,8 +383,8 @@ function App() {
           <span className="core-icon">{mode === 'emergency' ? '⚠️' : '🔐'}</span>
         </div>
         <div className={`status-label ${mode}`}>
-          {status === 'Disconnected' ? 'AEGIS STANDBY' : 
-           status === 'Listening' ? 'AEGIS LISTENING' : 
+          {status === 'Disconnected' ? 'AEGIS STANDBY' :
+           status === 'Listening' ? 'AEGIS LISTENING' :
            'AEGIS ACTIVE'}
         </div>
       </div>
@@ -436,7 +456,7 @@ function App() {
         </div>
       )}
 
-      {/* Tappable Action Card — Opens real apps if popup was blocked */}
+      {/* Fallback Action Card (if popup blocked) */}
       {pendingAction && (
         <div className="pending-action-card">
           <a
@@ -451,8 +471,6 @@ function App() {
           <button className="pending-action-dismiss" onClick={() => setPendingAction(null)}>✕</button>
         </div>
       )}
-
-
 
       {/* Services & Bookings */}
       {isConnected && mode === 'civilian' && (
@@ -521,7 +539,7 @@ function App() {
 
       {/* Footer */}
       <div className="app-footer">
-        <span>Rishav Singh • MSc Data Science</span>
+        <span>Powered by Llama 3 · Deepgram · Cartesia</span>
       </div>
     </div>
   );
