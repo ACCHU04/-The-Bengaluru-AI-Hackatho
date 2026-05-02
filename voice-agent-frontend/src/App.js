@@ -27,6 +27,7 @@ function App() {
   const [cabInfo, setCabInfo] = useState(null);
   const [showCamera, setShowCamera] = useState(false);
   const [cameraReason, setCameraReason] = useState('');
+  const [pendingAction, setPendingAction] = useState(null);
 
   const wsRef = useRef(null);
   const mediaRecorderRef = useRef(null);
@@ -112,10 +113,19 @@ function App() {
                 const songQuery = encodeURIComponent(data.song);
                 const ytUrl = `https://music.youtube.com/search?q=${songQuery}`;
                 
-                // On a laptop, open in a new tab. If blocked, navigate current tab.
+                // On a laptop, open in a new tab.
                 const newWindow = window.open(ytUrl, '_blank');
+                
+                // If blocked by browser popup blocker, DO NOT navigate current tab (which kills session).
+                // Instead, tell the user and provide a manual link.
                 if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
-                  window.location.href = ytUrl;
+                  setAiTranscript('Popup blocked! Please click the icon in your address bar to always allow popups.');
+                  // Provide a clickable card as fallback
+                  setPendingAction({
+                    type: 'music',
+                    label: `▶️ Open YouTube: ${data.song}`,
+                    url: ytUrl
+                  });
                 }
               }
               else if (data.action === 'cab_booked') {
@@ -423,6 +433,22 @@ function App() {
           <div className="music-eq">
             <div className="eq-bar"></div><div className="eq-bar"></div><div className="eq-bar"></div><div className="eq-bar"></div>
           </div>
+        </div>
+      )}
+
+      {/* Tappable Action Card — Opens real apps if popup was blocked */}
+      {pendingAction && (
+        <div className="pending-action-card">
+          <a
+            href={pendingAction.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="pending-action-btn"
+            onClick={() => setTimeout(() => setPendingAction(null), 2000)}
+          >
+            {pendingAction.label}
+          </a>
+          <button className="pending-action-dismiss" onClick={() => setPendingAction(null)}>✕</button>
         </div>
       )}
 
