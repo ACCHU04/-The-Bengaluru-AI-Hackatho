@@ -27,7 +27,6 @@ function App() {
   const [cabInfo, setCabInfo] = useState(null);
   const [showCamera, setShowCamera] = useState(false);
   const [cameraReason, setCameraReason] = useState('');
-  const [pendingAction, setPendingAction] = useState(null);
 
   const wsRef = useRef(null);
   const mediaRecorderRef = useRef(null);
@@ -103,22 +102,23 @@ function App() {
               if (data.action === 'play_music') {
                 setNowPlaying(data.song);
                 const songQuery = encodeURIComponent(data.song);
-                setPendingAction({ type: 'music', label: `▶️ Open YouTube Music: ${data.song}`, url: `https://music.youtube.com/search?q=${songQuery}` });
+                // Direct navigation to bypass popup blocker and auto-open the app
+                window.location.href = `https://music.youtube.com/search?q=${songQuery}`;
               }
               else if (data.action === 'cab_booked') {
                 setCabInfo({ eta: data.eta, destination: data.destination });
                 setTimeout(() => setCabInfo(null), 30000);
                 const dest = encodeURIComponent(data.destination);
-                setPendingAction({ type: 'cab', label: `🚕 Open Uber → ${data.destination}`, url: `https://m.uber.com/ul/?action=setPickup&pickup=my_location&dropoff[formatted_address]=${dest}` });
+                window.location.href = `https://m.uber.com/ul/?action=setPickup&pickup=my_location&dropoff[formatted_address]=${dest}`;
               }
               else if (data.action === 'movie_booked') {
                 const movie = encodeURIComponent(data.movie);
-                setPendingAction({ type: 'movie', label: `🎬 Open BookMyShow: ${data.movie}`, url: `https://in.bookmyshow.com/explore/movies-bengaluru?q=${movie}` });
+                window.location.href = `https://in.bookmyshow.com/explore/movies-bengaluru?q=${movie}`;
               }
               else if (data.action === 'appointment_booked') {
                 const title = encodeURIComponent(`Doctor: ${data.doctor}`);
                 const details = encodeURIComponent(`Hospital: ${data.hospital}\nBooked via Aegis`);
-                setPendingAction({ type: 'appointment', label: `📅 Open Calendar: ${data.doctor}`, url: `https://calendar.google.com/calendar/r/eventedit?text=${title}&details=${details}` });
+                window.location.href = `https://calendar.google.com/calendar/r/eventedit?text=${title}&details=${details}`;
               }
             }
 
@@ -404,21 +404,7 @@ function App() {
         </div>
       )}
 
-      {/* Tappable Action Card — Opens real apps on phone */}
-      {pendingAction && (
-        <div className="pending-action-card">
-          <a
-            href={pendingAction.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="pending-action-btn"
-            onClick={() => setTimeout(() => setPendingAction(null), 2000)}
-          >
-            {pendingAction.label}
-          </a>
-          <button className="pending-action-dismiss" onClick={() => setPendingAction(null)}>✕</button>
-        </div>
-      )}
+
 
       {/* Services & Bookings */}
       {isConnected && mode === 'civilian' && (
