@@ -253,6 +253,6 @@ MIT
   <p><strong>AEGIS PROTOCOL</strong> — Because every second counts.</p>
   <p>
     Built with ❤️ for The Bengaluru AI Hackathon 2026<br/>
-    <sub>Rishav Singh · MSc Data Science (2025-2027)</sub>
+    <sub>ACCHUTHA KS · MCA Data Science</sub>
   </p>
 </div>
