@@ -1,0 +1,171 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
+  <defs>
+    <!-- Background gradient -->
+    <radialGradient id="bgGrad" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#1a1a2e"/>
+      <stop offset="100%" stop-color="#0a0a15"/>
+    </radialGradient>
+
+    <!-- Shield main gradient (3D metallic effect) -->
+    <linearGradient id="shieldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4a90d9"/>
+      <stop offset="30%" stop-color="#2c7be5"/>
+      <stop offset="70%" stop-color="#1a5bb5"/>
+      <stop offset="100%" stop-color="#0e3a7a"/>
+    </linearGradient>
+
+    <!-- Shield highlight gradient -->
+    <linearGradient id="shieldHighlight" x1="0%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#8bb8f5" stop-opacity="0.6"/>
+      <stop offset="50%" stop-color="#4a90d9" stop-opacity="0.1"/>
+      <stop offset="100%" stop-color="#1a5bb5" stop-opacity="0.3"/>
+    </linearGradient>
+
+    <!-- Shield inner glow -->
+    <radialGradient id="innerGlow" cx="30%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.15"/>
+      <stop offset="60%" stop-color="#ffffff" stop-opacity="0.02"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.3"/>
+    </radialGradient>
+
+    <!-- Voice wave gradient -->
+    <linearGradient id="waveGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#00d4ff"/>
+      <stop offset="100%" stop-color="#7b2ff7"/>
+    </linearGradient>
+
+    <!-- Text gradient -->
+    <linearGradient id="textGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#8bb8f5"/>
+    </linearGradient>
+
+    <!-- Emergency accent gradient -->
+    <linearGradient id="emergencyGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#ff4444"/>
+      <stop offset="50%" stop-color="#ff6b6b"/>
+      <stop offset="100%" stop-color="#ff4444"/>
+    </linearGradient>
+
+    <!-- 3D shadow filter -->
+    <filter id="dropShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000000" flood-opacity="0.5"/>
+    </filter>
+
+    <!-- Glow filter -->
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Strong glow -->
+    <filter id="strongGlow">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Shield clip -->
+    <clipPath id="shieldClip">
+      <path d="M200 30 L340 95 L340 200 C340 300 200 360 200 360 C200 360 60 300 60 200 L60 95 Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- Background -->
+  <rect width="400" height="400" fill="url(#bgGrad)"/>
+
+  <!-- Subtle grid pattern -->
+  <g opacity="0.03">
+    <line x1="0" y1="50" x2="400" y2="50" stroke="#ffffff" stroke-width="0.5"/>
+    <line x1="0" y1="100" x2="400" y2="100" stroke="#ffffff" stroke-width="0.5"/>
+    <line x1="0" y1="150" x2="400" y2="150" stroke="#ffffff" stroke-width="0.5"/>
+    <line x1="0" y1="200" x2="400" y2="200" stroke="#ffffff" stroke-width="0.5"/>
+    <line x1="0" y1="250" x2="400" y2="250" stroke="#ffffff" stroke-width="0.5"/>
+    <line x1="0" y1="300" x2="400" y2="300" stroke="#ffffff" stroke-width="0.5"/>
+    <line x1="0" y1="350" x2="400" y2="350" stroke="#ffffff" stroke-width="0.5"/>
+    <line x1="50" y1="0" x2="50" y2="400" stroke="#ffffff" stroke-width="0.5"/>
+    <line x1="100" y1="0" x2="100" y2="400" stroke="#ffffff" stroke-width="0.5"/>
+    <line x1="150" y1="0" x2="150" y2="400" stroke="#ffffff" stroke-width="0.5"/>
+    <line x1="200" y1="0" x2="200" y2="400" stroke="#ffffff" stroke-width="0.5"/>
+    <line x1="250" y1="0" x2="250" y2="400" stroke="#ffffff" stroke-width="0.5"/>
+    <line x1="300" y1="0" x2="300" y2="400" stroke="#ffffff" stroke-width="0.5"/>
+    <line x1="350" y1="0" x2="350" y2="400" stroke="#ffffff" stroke-width="0.5"/>
+  </g>
+
+  <!-- Outer decorative rings -->
+  <circle cx="200" cy="190" r="155" fill="none" stroke="#4a90d9" stroke-width="0.5" opacity="0.15"/>
+  <circle cx="200" cy="190" r="140" fill="none" stroke="#4a90d9" stroke-width="0.5" opacity="0.1"/>
+
+  <!-- === SHIELD === -->
+  <!-- Shield shadow (3D depth) -->
+  <path d="M205 34 L345 99 L345 204 C345 304 205 364 205 364 C205 364 65 304 65 204 L65 99 Z"
+        fill="#000000" opacity="0.3" transform="translate(3,3)" filter="url(#dropShadow)"/>
+
+  <!-- Shield base shape -->
+  <path d="M200 30 L340 95 L340 200 C340 300 200 360 200 360 C200 360 60 300 60 200 L60 95 Z"
+        fill="url(#shieldGrad)" stroke="#5a9ff5" stroke-width="1.5"/>
+
+  <!-- Shield 3D bevel (left edge) -->
+  <path d="M60 95 L200 30 L200 360 C200 360 60 300 60 200 Z"
+        fill="url(#shieldHighlight)" opacity="0.4"/>
+
+  <!-- Shield inner glow -->
+  <path d="M200 30 L340 95 L340 200 C340 300 200 360 200 360 C200 360 60 300 60 200 L60 95 Z"
+        fill="url(#innerGlow)" clip-path="url(#shieldClip)"/>
+
+  <!-- Shield edge highlight (top) -->
+  <path d="M200 30 L340 95" stroke="#a0c8ff" stroke-width="2" fill="none" opacity="0.6"/>
+  <path d="M200 30 L60 95" stroke="#a0c8ff" stroke-width="2" fill="none" opacity="0.4"/>
+
+  <!-- === VOICE WAVES inside shield === -->
+  <g filter="url(#glow)">
+    <!-- Wave 1 (outer) -->
+    <path d="M140 175 Q155 155 170 170 Q185 185 200 170 Q215 155 230 170 Q245 185 260 175"
+          fill="none" stroke="#00d4ff" stroke-width="2.5" stroke-linecap="round" opacity="0.25"/>
+
+    <!-- Wave 2 (mid) -->
+    <path d="M150 190 Q162 172 175 185 Q188 198 200 185 Q212 172 225 185 Q238 198 250 190"
+          fill="none" stroke="#00d4ff" stroke-width="2.5" stroke-linecap="round" opacity="0.4"/>
+
+    <!-- Wave 3 (inner) -->
+    <path d="M160 205 Q170 190 180 200 Q190 210 200 200 Q210 190 220 200 Q230 210 240 205"
+          fill="none" stroke="#00d4ff" stroke-width="2.5" stroke-linecap="round" opacity="0.6"/>
+
+    <!-- Wave 4 (center active) -->
+    <path d="M170 220 Q177 208 185 215 Q193 222 200 215 Q207 208 215 215 Q223 222 230 220"
+          fill="none" stroke="#7b2ff7" stroke-width="3" stroke-linecap="round" opacity="0.8"/>
+  </g>
+
+  <!-- Center dot (voice source) -->
+  <circle cx="200" cy="210" r="4" fill="#00d4ff" filter="url(#strongGlow)"/>
+
+  <!-- === EMERGENCY STRIP at bottom of shield === -->
+  <path d="M90 280 L310 280 L310 300 L90 300 Z" fill="url(#emergencyGrad)" opacity="0.9"/>
+  <rect x="90" y="280" width="220" height="20" rx="2" fill="url(#emergencyGrad)" opacity="0.9"/>
+
+  <!-- Code Red text on strip -->
+  <text x="200" y="295" font-family="'Courier New', monospace" font-size="11" fill="#ffffff"
+        text-anchor="middle" font-weight="bold" letter-spacing="3">CODE READY</text>
+
+  <!-- === TEXT === -->
+  <!-- AEGIS main title -->
+  <text x="200" y="340" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="36"
+        fill="url(#textGrad)" text-anchor="middle" font-weight="800" letter-spacing="6"
+        filter="url(#dropShadow)">AEGIS</text>
+
+  <!-- PROTOCOL subtitle -->
+  <text x="200" y="358" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="12"
+        fill="#6a8fc5" text-anchor="middle" font-weight="600" letter-spacing="8">PROTOCOL</text>
+
+  <!-- === Small decorative dots === -->
+  <circle cx="170" cy="98" r="1.5" fill="#8bb8f5" opacity="0.4"/>
+  <circle cx="190" cy="92" r="1.5" fill="#8bb8f5" opacity="0.3"/>
+  <circle cx="210" cy="92" r="1.5" fill="#8bb8f5" opacity="0.3"/>
+  <circle cx="230" cy="98" r="1.5" fill="#8bb8f5" opacity="0.4"/>
+</svg>
